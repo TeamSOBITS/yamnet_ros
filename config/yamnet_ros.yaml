@@ -1,0 +1,47 @@
+yamnet_ros:
+  ros__parameters:
+
+    # Path to yamnet.h5 weights file.
+    # Empty string = auto-resolved to share/yamnet_ros/weights/yamnet.h5
+    weights_path: ''
+
+    # YAMNet model input sample rate (Hz). Do not change unless you retrain the model.
+    sample_rate: 16000
+
+    # YAMNet score threshold [0-1] to publish a detection event.
+    # Lower  = more sensitive (more false positives)
+    # Higher = less sensitive (may miss quiet or distant bells)
+    detection_threshold: 0.15
+
+    # Inference interval (seconds). New audio chunk is analysed every hop_secs.
+    # 0.5  → latency ~0.2–0.7 s, moderate CPU
+    # 0.25 → latency ~0.1–0.4 s, ~2× CPU
+    hop_secs: 0.5
+
+    # Sliding audio window fed to YAMNet each inference call. Minimum ~0.96 s.
+    window_secs: 1.0
+
+    # ALSA capture device. List devices with: arecord -l
+    # hw:1,7  = DMIC16kHz  (built-in digital mic, native 16 kHz — recommended)
+    # hw:1,0  = HDA Analog (headset/external mic jack)
+    audio_device: 'hw:1,7'
+
+    # Number of capture channels. DMIC (hw:1,7) requires 2; analog mics usually 1.
+    audio_channels: 2
+
+    # Minimum gap (seconds) between two consecutive published detections.
+    # Prevents one bell ring from firing multiple events.
+    cooldown_secs: 2.0
+
+    # YAMNet class name keywords that count as a doorbell-like sound.
+    # Matched as substrings (case-insensitive) against YAMNet's 521 class labels.
+    target_labels:
+      - 'doorbell'
+      - 'door bell'
+      - 'chime'
+      - 'ding'
+      - 'dong'
+      - 'ding-dong'
+      - 'bell'
+      - 'gong'
+      - 'jingle'
