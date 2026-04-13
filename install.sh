@@ -15,8 +15,12 @@ sudo apt-get update -qq
 sudo apt-get install -y alsa-utils   # provides arecord for microphone capture
 
 # ── Python dependencies ─────────────────────────────────────────────
+# Pin ml_dtypes before TF so the resolver doesn't downgrade it and conflict with onnx
+python3 -m pip install --break-system-packages "ml_dtypes==0.3.2"
 python3 -m pip install --break-system-packages "tensorflow-cpu==2.16.2"
-python3 -m pip install --break-system-packages "tf_keras==2.16.0"
+# --no-deps: tf_keras declares `tensorflow` (not tensorflow-cpu) as a dep;
+# we already have the CPU build, so skip re-resolution to avoid pulling the GPU wheel.
+python3 -m pip install --break-system-packages --no-deps "tf_keras==2.16.0"
 python3 -m pip install --break-system-packages "resampy>=0.4.0" "soundfile>=0.12.0" "numpy>=1.21,<2.0"
 
 # ── YAMNet source files ─────────────────────────────────────────────
