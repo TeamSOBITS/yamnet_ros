@@ -404,11 +404,14 @@ def _detect_alsa_device() -> tuple[str, int]:
 
     if card is None:
         return '', 0
-    # DMIC supports 16 kHz natively → use hw: directly.
-    # Analog codecs typically run at 44100/48000 Hz → use plughw: so ALSA
-    # resamples to the 16 kHz that YAMNet requires.
-    prefix = 'hw' if channels == 2 else 'plughw'
-    return f'{prefix}:{card},{device_idx}', channels
+    # DMIC (stereo) → hw: directly; it supports 16 kHz natively and is not
+    # held by PipeWire/PulseAudio, so direct hardware access is fine.
+    # Analog mic (mono) → PipeWire/PulseAudio holds the device exclusively on
+    # modern Ubuntu; use 'default' which routes through it and avoids
+    # "device busy" errors while still resampling to any rate we request.
+    if channels == 2:
+        return f'hw:{card},{device_idx}', 2
+    return 'default', 1
 
 
 def _load_yamnet(weights_path: str, class_map_path: str):

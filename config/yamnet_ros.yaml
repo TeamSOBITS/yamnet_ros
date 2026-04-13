@@ -24,7 +24,7 @@ yamnet_ros:
     # ALSA capture device. Empty string = auto-detect first available capture device.
     # Override with a specific device if auto-detection picks the wrong one.
     # List available devices with: arecord -l
-    # Examples: hw:1,7 (DMIC, native 16kHz), plughw:1,0 (HDA Analog, needs ALSA resampling)
+    # Examples: hw:1,7 (DMIC, native 16kHz), default (analog mic via PipeWire/PulseAudio)
     audio_device: ''
 
     # Number of capture channels. 0 = auto (2 for DMIC, 1 for analog).
