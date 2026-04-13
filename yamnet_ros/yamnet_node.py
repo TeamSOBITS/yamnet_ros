@@ -59,8 +59,8 @@ class YamnetNode(LifecycleNode):
         self.declare_parameter('detection_threshold', 0.15)   # min YAMNet score to trigger
         self.declare_parameter('hop_secs', 0.5)               # inference interval (seconds)
         self.declare_parameter('window_secs', 1.0)            # sliding audio window (seconds)
-        self.declare_parameter('audio_device', 'hw:1,7')      # ALSA capture device
-        self.declare_parameter('audio_channels', 2)           # 2 for DMIC, 1 for analog mic
+        self.declare_parameter('audio_device', '')             # '' = auto-detect first capture device
+        self.declare_parameter('audio_channels', 0)           # 0 = auto (2 for DMIC, 1 for analog)
         self.declare_parameter('cooldown_secs', 2.0)          # min gap between consecutive detections
         self.declare_parameter('target_labels', [             # keywords matched against YAMNet class names
             'doorbell', 'door bell',
@@ -121,10 +121,26 @@ class YamnetNode(LifecycleNode):
         self._threshold    = self.get_parameter('detection_threshold').value
         self._hop_secs     = self.get_parameter('hop_secs').value
         self._window_secs  = self.get_parameter('window_secs').value
-        self._device       = self.get_parameter('audio_device').value
-        self._channels     = self.get_parameter('audio_channels').value
         self._cooldown     = self.get_parameter('cooldown_secs').value
         self._keywords     = self.get_parameter('target_labels').value
+
+        # Auto-detect ALSA device / channel count if not explicitly set
+        device   = self.get_parameter('audio_device').value
+        channels = self.get_parameter('audio_channels').value
+        if not device:
+            device, channels_detected = _detect_alsa_device()
+            if not device:
+                self.get_logger().error(
+                    'No ALSA capture device found. Connect a microphone or set audio_device.'
+                )
+                return TransitionCallbackReturn.FAILURE
+            self.get_logger().info(f'Auto-detected ALSA device: {device}  channels={channels_detected}')
+            if channels == 0:
+                channels = channels_detected
+        elif channels == 0:
+            channels = 1  # safe default for explicit device without explicit channels
+        self._device   = device
+        self._channels = channels
 
         # Publisher — latched-style (depth 10) for detection events
         self._pub = self.create_lifecycle_publisher(SoundDetection, '~/sound_detection', 10)
@@ -194,7 +210,7 @@ class YamnetNode(LifecycleNode):
 
         try:
             proc = subprocess.Popen(
-                arecord_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+                arecord_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             self.get_logger().info(
                 f'Microphone open: {self._device}  channels={self._channels}  '
@@ -204,6 +220,13 @@ class YamnetNode(LifecycleNode):
             while self._running:
                 raw = proc.stdout.read(chunk_bytes)
                 if not raw or len(raw) < chunk_bytes:
+                    err = proc.stderr.read().decode(errors='replace').strip()
+                    if err:
+                        self.get_logger().error(
+                            f'arecord exited unexpectedly on device "{self._device}":\n{err}\n'
+                            f'Run  arecord -l  to list available devices and update '
+                            f'the audio_device parameter.'
+                        )
                     break
 
                 # Decode S16_LE → float32 mono
@@ -350,6 +373,43 @@ class YamnetNode(LifecycleNode):
 # ------------------------------------------------------------------ #
 # Module-level helpers (stateless — easier to test)                   #
 # ------------------------------------------------------------------ #
+
+def _detect_alsa_device() -> tuple[str, int]:
+    """Return (device, channels) for the first available ALSA capture device.
+
+    Parses `arecord -l` output. DMIC subdevices (subdevice index > 0 or
+    known DMIC names) get 2 channels; analog mics get 1.
+    Returns ('', 0) if no device is found.
+    """
+    try:
+        out = subprocess.check_output(['arecord', '-l'], stderr=subprocess.DEVNULL,
+                                      text=True, timeout=5)
+    except Exception:
+        return '', 0
+
+    card = device_idx = None
+    channels = 1
+    for line in out.splitlines():
+        # Matches lines like: "カード 1: PCH [...], デバイス 0: ALC257 Analog [...]"
+        # or the English equivalent: "card 1: PCH [...], device 0: ALC257 Analog [...]"
+        m = re.search(r'(?:card|カード)\s+(\d+).*?(?:device|デバイス)\s+(\d+)', line, re.IGNORECASE)
+        if m:
+            card, device_idx = m.group(1), m.group(2)
+            # DMIC cards typically have "DMIC" or high subdevice counts in the name
+            if 'dmic' in line.lower():
+                channels = 2
+            else:
+                channels = 1
+            break  # use the first capture device found
+
+    if card is None:
+        return '', 0
+    # DMIC supports 16 kHz natively → use hw: directly.
+    # Analog codecs typically run at 44100/48000 Hz → use plughw: so ALSA
+    # resamples to the 16 kHz that YAMNet requires.
+    prefix = 'hw' if channels == 2 else 'plughw'
+    return f'{prefix}:{card},{device_idx}', channels
+
 
 def _load_yamnet(weights_path: str, class_map_path: str):
     import yamnet as yamnet_model

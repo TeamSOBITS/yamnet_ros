@@ -21,13 +21,15 @@ yamnet_ros:
     # Sliding audio window fed to YAMNet each inference call. Minimum ~0.96 s.
     window_secs: 1.0
 
-    # ALSA capture device. List devices with: arecord -l
-    # hw:1,7  = DMIC16kHz  (built-in digital mic, native 16 kHz — recommended)
-    # hw:1,0  = HDA Analog (headset/external mic jack)
-    audio_device: 'hw:1,7'
+    # ALSA capture device. Empty string = auto-detect first available capture device.
+    # Override with a specific device if auto-detection picks the wrong one.
+    # List available devices with: arecord -l
+    # Examples: hw:1,7 (DMIC, native 16kHz), plughw:1,0 (HDA Analog, needs ALSA resampling)
+    audio_device: ''
 
-    # Number of capture channels. DMIC (hw:1,7) requires 2; analog mics usually 1.
-    audio_channels: 2
+    # Number of capture channels. 0 = auto (2 for DMIC, 1 for analog).
+    # Override if auto-detection is wrong for your hardware.
+    audio_channels: 0
 
     # Minimum gap (seconds) between two consecutive published detections.
     # Prevents one bell ring from firing multiple events.
