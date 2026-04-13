@@ -13,14 +13,14 @@ def generate_launch_description():
     # ── Launch arguments ──────────────────────────────────────────────
     audio_device_arg = DeclareLaunchArgument(
         'audio_device',
-        default_value='hw:1,7',
-        description='ALSA capture device.  hw:1,7 = DMIC16kHz (built-in).  '
-                    'Use --list-devices flag of listen_live.py to list alternatives.',
+        default_value='',
+        description='ALSA capture device.  Empty = auto-detect first available device.  '
+                    'Use arecord -l to list alternatives (e.g. hw:1,7, plughw:1,0).',
     )
     audio_channels_arg = DeclareLaunchArgument(
         'audio_channels',
-        default_value='2',
-        description='Number of capture channels (2 for DMIC, 1 for analog mic).',
+        default_value='0',
+        description='Number of capture channels (0 = auto: 2 for DMIC, 1 for analog mic).',
     )
     threshold_arg = DeclareLaunchArgument(
         'detection_threshold',
