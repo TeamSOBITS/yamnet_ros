@@ -328,7 +328,7 @@ class YamnetNode(LifecycleNode):
         try:
             while True:
                 # Check cancellation
-                if goal_handle.is_cancel_requested():
+                if goal_handle.is_cancel_requested:
                     self.get_logger().info('ListenForSound cancelled.')
                     goal_handle.canceled()
                     result = ListenForSound.Result()
