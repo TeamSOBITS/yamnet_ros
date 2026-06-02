@@ -42,7 +42,7 @@ Audio capture uses ALSA (`arecord`) directly — no extra audio libraries needed
 - Real-time detection of any of YAMNet's 521 sound classes (default: bell/doorbell)
 - Publishes a `SoundDetection` message on every detected event
 - Action server (`ListenForSound`) for SMACH state machines or behavior trees — blocks until detected or timeout
-- Fully configurable via YAML — change detection targets, threshold, device, and more
+- Fully configurable via YAML — change default detection targets, threshold, device, and more
 - LifecycleNode — zero CPU when inactive, clean activate/deactivate from task code
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -111,7 +111,7 @@ Audio capture uses ALSA (`arecord`) directly — no extra audio libraries needed
    # Wait up to 30 seconds for a bell (returns immediately on detection)
    ros2 action send_goal /yamnet_ros/listen_for_sound \
      sobits_interfaces/action/ListenForSound \
-     "{timeout_sec: 30.0, threshold: 0.15}"
+     "{target_labels: ['Doorbell', 'Bell'], timeout: {sec: 30, nanosec: 0}}"
    ```
 
 5. Override parameters at launch time without editing any file.
@@ -163,7 +163,7 @@ All parameters are set in [`config/yamnet_ros.yaml`](config/yamnet_ros.yaml) and
 
 | Action | Type | Description |
 | ------ | ---- | ----------- |
-| `/yamnet_ros/listen_for_sound` | `sobits_interfaces/action/ListenForSound` | Blocks until a bell is detected or `timeout_sec` expires. Returns `detected`, `label`, `score`, `elapsed_time`. Sends live feedback every hop. |
+| `/yamnet_ros/listen_for_sound` | `sobits_interfaces/action/ListenForSound` | Blocks until a requested sound is detected or `timeout` expires. Empty `target_labels` uses the node default labels. Returns `detected`, `label`, `score`, `elapsed_time`. Sends live feedback every hop. |
 
 ### SoundDetection.msg fields
 

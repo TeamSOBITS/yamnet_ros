@@ -111,7 +111,7 @@ YAMNet は **521クラス**の音響イベントをリアルタイムに分類�
    # 最大30秒待機（検出次第即時リターン）
    ros2 action send_goal /yamnet_ros/listen_for_sound \
      sobits_interfaces/action/ListenForSound \
-     "{timeout_sec: 30.0, threshold: 0.15}"
+     "{target_labels: ['Doorbell', 'Bell'], timeout: {sec: 30, nanosec: 0}}"
    ```
 
 5. ファイルを編集せずにパラメータを上書きして起動できます．
@@ -163,7 +163,7 @@ YAMNet は **521クラス**の音響イベントをリアルタイムに分類�
 
 | アクション | 型 | 説明 |
 | --------- | -- | ---- |
-| `/yamnet_ros/listen_for_sound` | `sobits_interfaces/action/ListenForSound` | 検出または `timeout_sec` 経過までブロック．`detected`・`label`・`score`・`elapsed_time` を返す．ホップごとにフィードバックを送信． |
+| `/yamnet_ros/listen_for_sound` | `sobits_interfaces/action/ListenForSound` | 指定した音の検出または `timeout` 経過までブロック．空の `target_labels` はノード既定のラベルを使います．`detected`・`label`・`score`・`elapsed_time` を返し，ホップごとにフィードバックを送信します． |
 
 ### SoundDetection.msg フィールド
 

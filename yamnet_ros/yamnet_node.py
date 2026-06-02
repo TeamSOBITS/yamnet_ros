@@ -8,7 +8,9 @@ Publisher:     ~/sound_detection  (SoundDetection)   — fires on every detectio
 Action server: ~/listen_for_sound (ListenForSound)   — blocks until detected or timeout
 
 Typical use in a SMACH state:
-    client.send_goal(ListenForSound.Goal(timeout_sec=30.0))
+    goal = ListenForSound.Goal()
+    goal.timeout.sec = 30
+    client.send_goal(goal)
     # → blocks until doorbell rings, returns detected=True/False
 """
 
@@ -43,7 +45,7 @@ sys.path.insert(0, _YAMNET_SRC)
 def _is_bell_like(label: str, keywords: list[str]) -> bool:
     label_lower = label.lower()
     return any(
-        re.search(r'\b' + re.escape(kw) + r'\b', label_lower)
+        re.search(r'\b' + re.escape(kw.lower()) + r'\b', label_lower)
         for kw in keywords
     )
 
@@ -80,6 +82,7 @@ class YamnetNode(LifecycleNode):
         self._active_goal = None
         self._detection_event: threading.Event | None = None
         self._detection_data: tuple | None = None  # (label, score)
+        self._active_keywords: list[str] | None = None
 
     # ------------------------------------------------------------------ #
     # Lifecycle                                                            #
@@ -236,21 +239,37 @@ class YamnetNode(LifecycleNode):
                 ring_buffer.extend(chunk)
                 waveform = np.array(ring_buffer, dtype=np.float32)
 
-                # Determine effective threshold (may be overridden by active goal)
                 with self._lock:
                     goal = self._active_goal
+                    active_keywords = self._active_keywords
 
-                hits, top_label, top_score = _run_inference(
-                    self._model, self._class_names, waveform,
+                mean_scores, top_indices, top_label, top_score = _run_inference(
+                    self._model, self._class_names, waveform
+                )
+                hits = _select_hits(
+                    self._class_names, mean_scores, top_indices,
                     self._threshold, self._keywords
                 )
+                action_hits = _select_hits(
+                    self._class_names, mean_scores, top_indices,
+                    self._threshold, active_keywords
+                ) if active_keywords is not None else hits
+
+                if action_hits:
+                    with self._lock:
+                        if self._active_goal is not None and self._detection_event is not None:
+                            best_action_label, best_action_score = max(
+                                action_hits, key=lambda x: x[1]
+                            )
+                            self._detection_data = (best_action_label, best_action_score)
+                            self._detection_event.set()
 
                 # Send action feedback every hop
                 if goal is not None:
                     fb = ListenForSound.Feedback()
                     fb.current_top_label  = top_label
                     fb.current_top_score  = top_score
-                    fb.candidate_detected = bool(hits)
+                    fb.candidate_detected = bool(action_hits)
                     try:
                         goal.publish_feedback(fb)
                     except Exception:
@@ -279,12 +298,6 @@ class YamnetNode(LifecycleNode):
                     f'[DETECTED] "{best_label}"  score={best_score:.3f}'
                 )
 
-                # Signal active action goal
-                with self._lock:
-                    if self._active_goal is not None and self._detection_event is not None:
-                        self._detection_data = (best_label, best_score)
-                        self._detection_event.set()
-
         except Exception as exc:
             self.get_logger().error(f'Capture loop crashed: {exc}')
         finally:
@@ -308,13 +321,13 @@ class YamnetNode(LifecycleNode):
         return CancelResponse.ACCEPT
 
     def _execute_action(self, goal_handle) -> ListenForSound.Result:
-        timeout   = goal_handle.request.timeout_sec
-        threshold = goal_handle.request.threshold
-        if threshold > 0.0:
-            self._threshold = threshold  # override node default for this session
+        timeout = _duration_to_seconds(goal_handle.request.timeout)
+        target_labels = list(goal_handle.request.target_labels)
+        active_keywords = target_labels if target_labels else list(self._keywords)
 
         self.get_logger().info(
-            f'ListenForSound started  timeout={timeout}s  threshold={self._threshold}'
+            f'ListenForSound started  timeout={timeout}s  '
+            f'target_labels={active_keywords}  threshold={self._threshold}'
         )
 
         event = threading.Event()
@@ -322,6 +335,7 @@ class YamnetNode(LifecycleNode):
             self._active_goal       = goal_handle
             self._detection_event   = event
             self._detection_data    = None
+            self._active_keywords   = active_keywords
 
         start = time.time()
 
@@ -333,7 +347,7 @@ class YamnetNode(LifecycleNode):
                     goal_handle.canceled()
                     result = ListenForSound.Result()
                     result.detected      = False
-                    result.elapsed_time  = float(time.time() - start)
+                    _set_duration(result.elapsed_time, time.time() - start)
                     return result
 
                 # Wait up to 0.2 s for a detection signal
@@ -347,7 +361,7 @@ class YamnetNode(LifecycleNode):
                     result.detected     = True
                     result.label        = data[0] if data else ''
                     result.score        = float(data[1]) if data else 0.0
-                    result.elapsed_time = elapsed
+                    _set_duration(result.elapsed_time, elapsed)
                     self.get_logger().info(
                         f'ListenForSound succeeded: "{result.label}" score={result.score:.3f}'
                     )
@@ -360,7 +374,7 @@ class YamnetNode(LifecycleNode):
                     )
                     result = ListenForSound.Result()
                     result.detected     = False
-                    result.elapsed_time = elapsed
+                    _set_duration(result.elapsed_time, elapsed)
                     goal_handle.succeed()
                     return result
         finally:
@@ -368,6 +382,7 @@ class YamnetNode(LifecycleNode):
                 self._active_goal     = None
                 self._detection_event = None
                 self._detection_data  = None
+                self._active_keywords = None
 
 
 # ------------------------------------------------------------------ #
@@ -375,43 +390,80 @@ class YamnetNode(LifecycleNode):
 # ------------------------------------------------------------------ #
 
 def _detect_alsa_device() -> tuple[str, int]:
-    """Return (device, channels) for the first available ALSA capture device.
-
-    Parses `arecord -l` output. DMIC subdevices (subdevice index > 0 or
-    known DMIC names) get 2 channels; analog mics get 1.
-    Returns ('', 0) if no device is found.
-    """
+    """Return (device, channels) for the first usable ALSA capture device."""
     try:
         out = subprocess.check_output(['arecord', '-l'], stderr=subprocess.DEVNULL,
                                       text=True, timeout=5)
     except Exception:
         return '', 0
 
-    card = device_idx = None
-    channels = 1
+    capture_devices: list[tuple[str, str, str]] = []
     for line in out.splitlines():
         # Matches lines like: "カード 1: PCH [...], デバイス 0: ALC257 Analog [...]"
         # or the English equivalent: "card 1: PCH [...], device 0: ALC257 Analog [...]"
         m = re.search(r'(?:card|カード)\s+(\d+).*?(?:device|デバイス)\s+(\d+)', line, re.IGNORECASE)
         if m:
-            card, device_idx = m.group(1), m.group(2)
-            # DMIC cards typically have "DMIC" or high subdevice counts in the name
-            if 'dmic' in line.lower():
-                channels = 2
-            else:
-                channels = 1
-            break  # use the first capture device found
+            capture_devices.append((m.group(1), m.group(2), line.lower()))
 
-    if card is None:
+    if not capture_devices:
         return '', 0
-    # DMIC (stereo) → hw: directly; it supports 16 kHz natively and is not
-    # held by PipeWire/PulseAudio, so direct hardware access is fine.
-    # Analog mic (mono) → PipeWire/PulseAudio holds the device exclusively on
-    # modern Ubuntu; use 'default' which routes through it and avoids
-    # "device busy" errors while still resampling to any rate we request.
-    if channels == 2:
-        return f'hw:{card},{device_idx}', 2
-    return 'default', 1
+
+    candidates: list[tuple[str, int]] = []
+    dmic16_devices = [
+        dev for dev in capture_devices
+        if 'dmic16khz' in dev[2]
+    ]
+    dmic_devices = [
+        dev for dev in capture_devices
+        if 'dmic' in dev[2] and dev not in dmic16_devices
+    ]
+    analog_devices = [
+        dev for dev in capture_devices
+        if dev not in dmic16_devices and dev not in dmic_devices
+    ]
+
+    for card, device_idx, _line in dmic16_devices + dmic_devices + analog_devices:
+        is_dmic = (card, device_idx, _line) in dmic16_devices + dmic_devices
+        preferred_channels = 2 if is_dmic else 1
+        for alsa_name in (f'hw:{card},{device_idx}', f'plughw:{card},{device_idx}'):
+            candidates.append((alsa_name, preferred_channels))
+            candidates.append((alsa_name, 1 if preferred_channels == 2 else 2))
+
+    # Try default only after concrete devices. In containers it is often present
+    # as a name but not backed by a working PCM route.
+    candidates.extend([('default', 1), ('default', 2)])
+
+    seen: set[tuple[str, int]] = set()
+    for device, channels in candidates:
+        if (device, channels) in seen:
+            continue
+        seen.add((device, channels))
+        if _probe_alsa_device(device, channels):
+            return device, channels
+
+    return '', 0
+
+
+def _probe_alsa_device(device: str, channels: int) -> bool:
+    cmd = [
+        'arecord', '-D', device,
+        '-f', 'S16_LE', '-r', '16000',
+        '-c', str(channels), '-',
+    ]
+    try:
+        subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=False,
+            timeout=0.8,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return True
+    except Exception:
+        return False
+    return False
 
 
 def _load_yamnet(weights_path: str, class_map_path: str):
@@ -430,21 +482,40 @@ def _load_yamnet(weights_path: str, class_map_path: str):
     return model, names
 
 
-def _run_inference(model, class_names: list, waveform: np.ndarray,
-                   threshold: float, keywords: list[str]):
-    """Returns (hits, top_label, top_score).  hits = [(label, score), ...]"""
+def _duration_to_seconds(duration) -> float:
+    return float(duration.sec) + float(duration.nanosec) / 1e9
+
+
+def _set_duration(duration, seconds: float) -> None:
+    seconds = max(0.0, float(seconds))
+    whole_sec = int(seconds)
+    duration.sec = whole_sec
+    duration.nanosec = int(round((seconds - whole_sec) * 1e9))
+    if duration.nanosec >= 1000000000:
+        duration.sec += 1
+        duration.nanosec -= 1000000000
+
+
+def _run_inference(model, class_names: list, waveform: np.ndarray):
+    """Returns (mean_scores, top_indices, top_label, top_score)."""
     scores, _, _ = model(waveform)
     mean_scores  = scores.numpy().mean(axis=0)
     top_indices  = np.argsort(mean_scores)[::-1][:10]
 
+    top_label = class_names[top_indices[0]]
+    top_score = float(mean_scores[top_indices[0]])
+    return mean_scores, top_indices, top_label, top_score
+
+
+def _select_hits(class_names: list, mean_scores: np.ndarray, top_indices: np.ndarray,
+                 threshold: float, keywords: list[str]):
+    """Returns hits = [(label, score), ...]."""
     hits = [
         (class_names[i], float(mean_scores[i]))
         for i in top_indices
         if _is_bell_like(class_names[i], keywords) and float(mean_scores[i]) >= threshold
     ]
-    top_label = class_names[top_indices[0]]
-    top_score = float(mean_scores[top_indices[0]])
-    return hits, top_label, top_score
+    return hits
 
 
 # ------------------------------------------------------------------ #

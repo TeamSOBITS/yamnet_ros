@@ -39,17 +39,17 @@ _DEACTIVATE = Transition.TRANSITION_DEACTIVATE
 class WaitForBellState(smach.State):
 
     def __init__(self, node: rclpy.node.Node, timeout_sec: float = 30.0,
-                 threshold: float = 0.0):
+                 target_labels: list[str] | None = None):
         """
         Args:
-            node:        your rclpy Node instance
-            timeout_sec: how long to listen (0 = no timeout)
-            threshold:   YAMNet score threshold (0 = use node's config default)
+            node:          your rclpy Node instance
+            timeout_sec:   how long to listen (0 = no timeout)
+            target_labels: labels to listen for (None/empty = yamnet_ros default)
         """
         super().__init__(outcomes=['detected', 'timeout', 'error'])
-        self._node        = node
-        self._timeout_sec = timeout_sec
-        self._threshold   = threshold
+        self._node          = node
+        self._timeout_sec   = timeout_sec
+        self._target_labels = list(target_labels or [])
 
         # Lifecycle services
         self._change_state = node.create_client(
@@ -80,8 +80,8 @@ class WaitForBellState(smach.State):
 
         # 3. Send goal and wait for result
         goal = ListenForSound.Goal()
-        goal.timeout_sec = float(self._timeout_sec)
-        goal.threshold   = float(self._threshold)
+        goal.target_labels = self._target_labels
+        _set_duration(goal.timeout, self._timeout_sec)
 
         future = self._action_client.send_goal_async(
             goal, feedback_callback=self._feedback_cb
@@ -102,15 +102,17 @@ class WaitForBellState(smach.State):
         self._set_lifecycle(_DEACTIVATE)
 
         if result.detected:
+            elapsed = _duration_to_seconds(result.elapsed_time)
             self._node.get_logger().info(
                 f'WaitForBellState: bell detected!  '
                 f'label="{result.label}"  score={result.score:.3f}  '
-                f'elapsed={result.elapsed_time:.1f}s'
+                f'elapsed={elapsed:.1f}s'
             )
             return 'detected'
         else:
+            elapsed = _duration_to_seconds(result.elapsed_time)
             self._node.get_logger().info(
-                f'WaitForBellState: timed out after {result.elapsed_time:.1f}s'
+                f'WaitForBellState: timed out after {elapsed:.1f}s'
             )
             return 'timeout'
 
@@ -131,3 +133,17 @@ class WaitForBellState(smach.State):
             f'  listening... top="{fb.current_top_label}" ({fb.current_top_score:.3f})'
             f'  candidate={fb.candidate_detected}'
         )
+
+
+def _set_duration(duration, seconds: float) -> None:
+    seconds = max(0.0, float(seconds))
+    whole_sec = int(seconds)
+    duration.sec = whole_sec
+    duration.nanosec = int(round((seconds - whole_sec) * 1e9))
+    if duration.nanosec >= 1000000000:
+        duration.sec += 1
+        duration.nanosec -= 1000000000
+
+
+def _duration_to_seconds(duration) -> float:
+    return float(duration.sec) + float(duration.nanosec) / 1e9
