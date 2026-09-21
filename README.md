@@ -1,6 +1,6 @@
 <a name="readme-top"></a>
 
-[EN](README_en.md) | [JA](README.md)
+[EN](README.md) | [JA](README_ja.md)
 
 [![Contributors][contributors-shield]][contributors-url]
 [![Forks][forks-shield]][forks-url]
@@ -11,49 +11,50 @@
 # YAMNet ROS
 
 <details>
-  <summary>目次</summary>
+  <summary>Table of Contents</summary>
   <ol>
     <li>
-      <a href="#概要">概要</a>
+      <a href="#overview">Overview</a>
     </li>
     <li>
-      <a href="#セットアップ">セットアップ</a>
+      <a href="#setup">Setup</a>
       <ul>
-        <li><a href="#環境条件">環境条件</a></li>
-        <li><a href="#インストール方法">インストール方法</a></li>
+        <li><a href="#environment">Environment</a></li>
+        <li><a href="#installation">Installation</a></li>
       </ul>
     </li>
-    <li><a href="#実行操作方法">実行・操作方法</a></li>
-    <li><a href="#パラメーター">パラメーター</a></li>
-    <li><a href="#トピックとアクション">トピックとアクション</a></li>
-    <li><a href="#参考文献">参考文献</a></li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#parameters">Parameters</a></li>
+    <li><a href="#topics--actions">Topics & Actions</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#references">References</a></li>
   </ol>
 </details>
 
 
-## 概要
-`yamnet_ros` は，Googleの音声分類モデル **YAMNet** を ROS 2 で利用するためのラッパーパッケージです．
+## Overview
+`yamnet_ros` is a ROS 2 wrapper for Google's **YAMNet** audio classification model, bringing real-time sound event detection to robots via microphone.
 
-YAMNet は **521クラス**の音響イベントをリアルタイムに分類できます．デフォルト設定ではドアベル・ベル音の検出に最適化されていますが，`target_labels` パラメータを変更するだけで，**任意の音響イベント検出**に転用できます．
+YAMNet recognises **521 sound classes**. The default configuration targets doorbell and bell sounds, but any acoustic event can be detected by simply changing `target_labels` in the config — no code changes required.
 
-音声キャプチャには ALSA（`arecord`）を直接使用するため，追加の音声ライブラリは不要です．
+Audio capture uses ALSA (`arecord`) directly — no extra audio libraries needed.
 
-**主な機能:**
-- 521クラス対応のリアルタイム音響イベント検出（デフォルト：ドアベル・ベル系）
-- 検出のたびに `SoundDetection` メッセージを配信
-- アクションサーバ（`ListenForSound`）によるSMACHステートマシン・ビヘイビアツリーとの連携 — 検出またはタイムアウトまでブロック
-- `target_labels` をYAMLで変更するだけで検出対象を自由にカスタマイズ可能
-- LifecycleNode による起動・停止の明示的な制御（未使用時はCPUゼロ）
+**Main Features:**
+- Real-time detection of any of YAMNet's 521 sound classes (default: bell/doorbell)
+- Publishes a `SoundDetection` message on every detected event
+- Action server (`ListenForSound`) for SMACH state machines or behavior trees — blocks until detected or timeout
+- Fully configurable via YAML — change default detection targets, threshold, device, and more
+- LifecycleNode — zero CPU when inactive, clean activate/deactivate from task code
 
-<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
-
-
-## セットアップ
-
-<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
-### 環境条件
+## Setup
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+### Environment
 
 | System | Version |
 | ------ | ------- |
@@ -61,60 +62,60 @@ YAMNet は **521クラス**の音響イベントをリアルタイムに分類�
 | ROS    | Jazzy Jalisco |
 | Python | 3.12 |
 
-### インストール方法
-1. ROS 2 の `src` フォルダに移動します．
+### Installation
+1. Move to your ROS 2 `src` directory.
    ```sh
    cd ~/colcon_ws/src/
    ```
-2. 本レポジトリをcloneします．
+2. Clone this repository.
    ```sh
    git clone -b jazzy-devel https://github.com/TeamSOBITS/yamnet_ros.git
    ```
-3. レポジトリの中へ移動します．
+3. Navigate into the repository.
    ```sh
    cd yamnet_ros
    ```
-4. 依存パッケージをインストールします（ウェイトファイル・YAMNetソース・Python依存関係を自動ダウンロード）．
+4. Run the install script (downloads weights, YAMNet source, and Python dependencies).
    ```sh
    bash install.sh
    ```
-5. パッケージをビルドします．
+5. Build the package.
    ```sh
    cd ~/colcon_ws/
    colcon build --packages-select sobits_interfaces yamnet_ros
    source install/setup.bash
    ```
 
-<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
-## 実行・操作方法
+## Usage
 
-1. ノードを起動します．
+1. Launch the node.
    ```sh
    ros2 launch yamnet_ros yamnet_ros.launch.py
    ```
 
-2. 別のターミナルで LifecycleNode を設定・有効化します．
+2. In a separate terminal, configure and activate the LifecycleNode.
    ```sh
    ros2 lifecycle set /yamnet_ros configure
    ros2 lifecycle set /yamnet_ros activate
    ```
 
-3. 検出イベントを確認します．
+3. Listen for detection events.
    ```sh
    ros2 topic echo /yamnet_ros/sound_detection
    ```
 
-4. アクションサーバでベル音を待機します（スクリプトやステートマシンから利用）．
+4. Use the action server to wait for a bell in a script or state machine.
    ```sh
-   # 最大30秒待機（検出次第即時リターン）
+   # Wait up to 30 seconds for a bell (returns immediately on detection)
    ros2 action send_goal /yamnet_ros/listen_for_sound \
      sobits_interfaces/action/ListenForSound \
      "{target_labels: ['Doorbell', 'Bell'], timeout: {sec: 30, nanosec: 0}}"
    ```
 
-5. ファイルを編集せずにパラメータを上書きして起動できます．
+5. Override parameters at launch time without editing any file.
    ```sh
    ros2 launch yamnet_ros yamnet_ros.launch.py \
      detection_threshold:=0.25 \
@@ -122,63 +123,74 @@ YAMNet は **521クラス**の音響イベントをリアルタイムに分類�
      audio_device:=hw:1,0
    ```
 
-6. 利用可能なマイクデバイスを確認します．
+6. List available microphone devices.
    ```sh
    arecord -l
    ```
 
-> **注意:** このノードはALSAに直接アクセスするため，デスクトップのマイクアイコンは表示されません．これは正常な動作です．PulseAudioをバイパスすることで低遅延を実現しています．
+> **Note:** This node accesses ALSA directly, so the desktop mic indicator will **not** appear. This is expected — bypassing PulseAudio is intentional for lower latency.
 
-<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
-
-
-## パラメーター
-
-全パラメータは [`config/yamnet_ros.yaml`](config/yamnet_ros.yaml) で設定し，launchファイルから上書き可能です．
-
-| パラメータ | 説明 | デフォルト値 |
-| --------- | ---- | ----------- |
-| `weights_path` | `yamnet.h5` のパス．空文字 = パッケージshareから自動解決． | `''` |
-| `sample_rate` | 音声サンプリングレート (Hz)．YAMNetは16000が必須． | `16000` |
-| `detection_threshold` | 検出とみなす最小YAMNetスコア [0–1]．小さいほど感度が高い． | `0.15` |
-| `hop_secs` | 推論実行間隔（秒）．小さいほど応答が速くCPU負荷が高い． | `0.5` |
-| `window_secs` | YAMNetに渡すスライディング音声窓の長さ（秒）．最小約0.96秒． | `1.0` |
-| `audio_device` | ALSAキャプチャデバイス名．`arecord -l` で一覧確認可能． | `hw:1,7` |
-| `audio_channels` | キャプチャチャンネル数．DMIC（hw:1,7）は2，アナログマイクは通常1． | `2` |
-| `cooldown_secs` | 連続検出イベント間の最小間隔（秒）． | `2.0` |
-| `target_labels` | YAMNetクラス名と照合するキーワードリスト． | yamlを参照 |
-
-<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
-## トピックとアクション
+## Parameters
 
-### パブリッシュ
+All parameters are set in [`config/yamnet_ros.yaml`](config/yamnet_ros.yaml) and can be overridden from the launch file.
 
-| トピック | 型 | 説明 |
-| ------- | -- | ---- |
-| `/yamnet_ros/sound_detection` | `sobits_interfaces/SoundDetection` | ベル音検出のたびに配信．ラベル・スコア・上位クラスを含む． |
+| Parameter | Description | Default |
+| --------- | ----------- | ------- |
+| `weights_path` | Path to `yamnet.h5`. Empty = auto-resolved from package share. | `''` |
+| `sample_rate` | Audio sample rate in Hz. YAMNet requires 16000. | `16000` |
+| `detection_threshold` | Minimum YAMNet score [0–1] to publish a detection. Lower = more sensitive. | `0.15` |
+| `hop_secs` | How often (seconds) to run inference. Lower = faster response, more CPU. | `0.5` |
+| `window_secs` | Sliding audio window length fed to YAMNet each call. Minimum ~0.96 s. | `1.0` |
+| `audio_device` | ALSA capture device name. Use `arecord -l` to list devices. | `hw:1,7` |
+| `audio_channels` | Capture channels. DMIC (`hw:1,7`) needs 2; analog mics usually need 1. | `2` |
+| `cooldown_secs` | Minimum gap (seconds) between consecutive published detections. | `2.0` |
+| `target_labels` | List of keywords matched against YAMNet class names to count as a bell. | see yaml |
 
-### アクションサーバ
-
-| アクション | 型 | 説明 |
-| --------- | -- | ---- |
-| `/yamnet_ros/listen_for_sound` | `sobits_interfaces/action/ListenForSound` | 指定した音の検出または `timeout` 経過までブロック．空の `target_labels` はノード既定のラベルを使います．`detected`・`label`・`score`・`elapsed_time` を返し，ホップごとにフィードバックを送信します． |
-
-### SoundDetection.msg フィールド
-
-| フィールド | 型 | 説明 |
-| --------- | -- | ---- |
-| `header` | `std_msgs/Header` | 検出タイムスタンプ |
-| `label` | `string` | 最も一致したベル系クラス名（例：`"Doorbell"`，`"Bell"`） |
-| `score` | `float32` | そのクラスのYAMNetスコア |
-| `top_label` | `string` | 全クラス中の最上位クラス（診断用） |
-| `top_score` | `float32` | 最上位スコア（診断用） |
-
-<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
-## 参考文献
+## Topics & Actions
+
+### Publications
+
+| Topic | Type | Description |
+| ----- | ---- | ----------- |
+| `/yamnet_ros/sound_detection` | `sobits_interfaces/SoundDetection` | Published each time a bell-like sound is detected. Contains label, score, and top overall class. |
+
+### Action Servers
+
+| Action | Type | Description |
+| ------ | ---- | ----------- |
+| `/yamnet_ros/listen_for_sound` | `sobits_interfaces/action/ListenForSound` | Blocks until a requested sound is detected or `timeout` expires. Empty `target_labels` uses the node default labels. Returns `detected`, `label`, `score`, `elapsed_time`. Sends live feedback every hop. |
+
+### SoundDetection.msg fields
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `header` | `std_msgs/Header` | Timestamp of the detection |
+| `label` | `string` | Best matching bell-like class (e.g. `"Doorbell"`, `"Bell"`) |
+| `score` | `float32` | YAMNet score for that class |
+| `top_label` | `string` | Top overall YAMNet class (for diagnostics) |
+| `top_score` | `float32` | Top overall score (for diagnostics) |
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+## License
+This package is distributed under the **BSD 3-Clause License**. See [LICENSE](LICENSE) for the full text.
+
+### Third-Party Code
+The files under [`yamnet_ros/yamnet_src/`](yamnet_ros/yamnet_src/) (`yamnet.py`, `features.py`, `params.py`, `yamnet_class_map.csv`) are taken from [tensorflow/models](https://github.com/tensorflow/models/tree/master/research/audioset/yamnet) and remain under the **Apache License 2.0**, Copyright 2019 The TensorFlow Authors. Their original license headers are retained.
+
+The pre-trained weight file `weights/yamnet.h5` is published by Google Research under the Apache License 2.0.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+## References
 - [YAMNet — TensorFlow Models (AudioSet)](https://github.com/tensorflow/models/tree/master/research/audioset/yamnet)
 - [AudioSet Ontology](https://research.google.com/audioset/ontology/index.html)
 - [Google Research — YAMNet](https://tfhub.dev/google/yamnet/1)

@@ -12,3 +12,6 @@ log/
 .vscode/
 .idea/
 *.swp
+
+# Internal dev notes
+openspec/
